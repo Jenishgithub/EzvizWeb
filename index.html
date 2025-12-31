@@ -3,37 +3,215 @@
 <head>
   <meta charset="utf-8">
   <title>EZVIZ Live</title>
+  <style>
+    body {
+      margin: 0;
+      background: black;
+      color: white;
+      font-family: Arial, sans-serif;
+    }
+    #container {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+    #video {
+      flex: 1;
+      background: black;
+    }
+    #controls {
+      padding: 15px;
+      background: #222;
+      border-top: 1px solid #444;
+    }
+    .control-group {
+      margin-bottom: 10px;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    input[type="text"] {
+      padding: 8px;
+      border: 1px solid #444;
+      border-radius: 4px;
+      background: #333;
+      color: white;
+      min-width: 150px;
+    }
+    button {
+      padding: 8px 16px;
+      background: #0066cc;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    button:hover {
+      background: #0052a3;
+    }
+    button:disabled {
+      background: #666;
+      cursor: not-allowed;
+    }
+    #status {
+      font-size: 12px;
+      color: #aaa;
+    }
+    .error {
+      color: #ff6b6b;
+    }
+    .success {
+      color: #51cf66;
+    }
+    select {
+      padding: 8px;
+      border: 1px solid #444;
+      border-radius: 4px;
+      background: #333;
+      color: white;
+    }
+  </style>
 </head>
-<body style="margin:0;background:black">
-<video id="video" autoplay playsinline muted style="width:100vw;height:100vh;"></video>
+<body>
+<div id="container">
+  <video id="video" autoplay playsinline muted></video>
+  <div id="controls">
+    <div class="control-group">
+      <label>Camera IP:</label>
+      <input type="text" id="cameraIp" placeholder="e.g., 192.168.1.4" value="192.168.1.4">
+      <button id="scanBtn" onclick="scanForCameras()">🔍 Scan Network</button>
+      <select id="cameraList" onchange="selectCamera()" style="display: none;"></select>
+    </div>
+    <div class="control-group">
+      <label>Server IP:</label>
+      <input type="text" id="serverIp" placeholder="e.g., 192.168.1.6" value="192.168.1.6">
+    </div>
+    <div id="status">Ready</div>
+  </div>
+</div>
 
 <script>
 // Configuration constants
 const CONFIG = {
-  MEDIAMTX_HOST: '192.168.1.6',
+  DISCOVERY_SERVER: 'http://localhost:3000',
   MEDIAMTX_PORT: 8889,
   STREAM_PATH: 'ezviz',
   STUN_SERVER: 'stun:stun.l.google.com:19302'
 };
 
-// Build the WHEP endpoint URL
-const WHEP_ENDPOINT = `http://${CONFIG.MEDIAMTX_HOST}:${CONFIG.MEDIAMTX_PORT}/${CONFIG.STREAM_PATH}/whep`;
-//http://192.168.1.6:8889/ezviz/whep
-(async () => {
+let pc = null;
+let scannedCameras = [];
+
+// Load saved IPs from localStorage
+function loadSavedIPs() {
+  const savedCameraIp = localStorage.getItem('cameraIp');
+  const savedServerIp = localStorage.getItem('serverIp');
+  
+  if (savedCameraIp) {
+    document.getElementById('cameraIp').value = savedCameraIp;
+  }
+  if (savedServerIp) {
+    document.getElementById('serverIp').value = savedServerIp;
+  }
+}
+
+// Save IPs to localStorage
+function saveIPs() {
+  localStorage.setItem('cameraIp', document.getElementById('cameraIp').value);
+  localStorage.setItem('serverIp', document.getElementById('serverIp').value);
+}
+
+// Scan network for cameras with RTSP port open
+async function scanForCameras() {
+  const scanBtn = document.getElementById('scanBtn');
+  const statusDiv = document.getElementById('status');
+  
+  scanBtn.disabled = true;
+  statusDiv.textContent = 'Scanning network...';
+  statusDiv.className = '';
+  
   try {
-    const pc = new RTCPeerConnection({
+    const response = await fetch(`${CONFIG.DISCOVERY_SERVER}/scan`);
+    const data = await response.json();
+    
+    if (data.error) {
+      throw new Error(data.error);
+    }
+    
+    scannedCameras = data.cameras;
+    
+    if (scannedCameras.length === 0) {
+      statusDiv.textContent = 'No cameras found. Please enter IP manually.';
+      statusDiv.className = 'error';
+    } else {
+      // Show dropdown with found cameras
+      const cameraList = document.getElementById('cameraList');
+      cameraList.innerHTML = '<option value="">-- Select Camera --</option>';
+      scannedCameras.forEach(ip => {
+        const option = document.createElement('option');
+        option.value = ip;
+        option.textContent = `Camera at ${ip}`;
+        cameraList.appendChild(option);
+      });
+      cameraList.style.display = 'inline-block';
+      statusDiv.textContent = `Found ${scannedCameras.length} device(s) with RTSP port open.`;
+      statusDiv.className = 'success';
+    }
+  } catch (error) {
+    statusDiv.textContent = `Scan error: ${error.message}. Make sure discovery server is running.`;
+    statusDiv.className = 'error';
+    console.error('Scan error:', error);
+  } finally {
+    scanBtn.disabled = false;
+  }
+}
+
+// Select camera from dropdown
+function selectCamera() {
+  const cameraList = document.getElementById('cameraList');
+  if (cameraList.value) {
+    document.getElementById('cameraIp').value = cameraList.value;
+    startStream();
+  }
+}
+
+// Start streaming
+async function startStream() {
+  const cameraIp = document.getElementById('cameraIp').value.trim();
+  const serverIp = document.getElementById('serverIp').value.trim();
+  const statusDiv = document.getElementById('status');
+  
+  if (!cameraIp || !serverIp) {
+    statusDiv.textContent = 'Please enter both camera and server IP addresses.';
+    statusDiv.className = 'error';
+    return;
+  }
+  
+  // Save for next time
+  saveIPs();
+  
+  const WHEP_ENDPOINT = `http://${serverIp}:${CONFIG.MEDIAMTX_PORT}/${CONFIG.STREAM_PATH}/whep`;
+  
+  try {
+    statusDiv.textContent = 'Connecting...';
+    statusDiv.className = '';
+    
+    pc = new RTCPeerConnection({
       iceServers: [{ urls: [CONFIG.STUN_SERVER] }]
     });
     
     const video = document.getElementById("video");
     
-    // Add a video transceiver for receiving video
+    // Add video transceiver for receiving
     pc.addTransceiver('video', { direction: 'recvonly' });
     
-    // Handle incoming tracks
     pc.ontrack = (event) => {
       console.log("Track received:", event.track.kind);
       video.srcObject = event.streams[0];
+      statusDiv.textContent = '🟢 Connected';
+      statusDiv.className = 'success';
     };
     
     pc.onicecandidate = (event) => {
@@ -41,8 +219,15 @@ const WHEP_ENDPOINT = `http://${CONFIG.MEDIAMTX_HOST}:${CONFIG.MEDIAMTX_PORT}/${
         console.log("ICE candidate:", event.candidate);
       }
     };
+    
+    pc.onconnectionstatechange = () => {
+      console.log('Connection state:', pc.connectionState);
+      if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+        statusDiv.textContent = '🔴 Connection lost. Retrying...';
+        statusDiv.className = 'error';
+      }
+    };
 
-    // Create and send offer
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     
@@ -54,18 +239,12 @@ const WHEP_ENDPOINT = `http://${CONFIG.MEDIAMTX_HOST}:${CONFIG.MEDIAMTX_PORT}/${
       body: offer.sdp
     });
 
-    console.log("Response status:", res.status);
-    
-    const responseText = await res.text();
-    
     if (!res.ok) {
-      console.error("WebRTC Error:", responseText);
-      return;
+      const errorText = await res.text();
+      throw new Error(`WebRTC Error: ${errorText}`);
     }
 
-    const answerSdp = responseText;
-    console.log("Answer received:", answerSdp.substring(0, 100));
-    
+    const answerSdp = await res.text();
     const answer = new RTCSessionDescription({
       type: "answer",
       sdp: answerSdp
@@ -75,10 +254,24 @@ const WHEP_ENDPOINT = `http://${CONFIG.MEDIAMTX_HOST}:${CONFIG.MEDIAMTX_PORT}/${
     console.log("WebRTC connection established");
     
   } catch (error) {
+    statusDiv.textContent = `Error: ${error.message}`;
+    statusDiv.className = 'error';
     console.error("Error:", error);
   }
-})();
+}
 
+// Auto-connect on load if IPs are saved
+window.addEventListener('load', () => {
+  loadSavedIPs();
+  // Optionally auto-connect: startStream();
+});
+
+// Start stream when Enter is pressed
+document.addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') {
+    startStream();
+  }
+});
 </script>
 </body>
 </html>
