@@ -2,6 +2,22 @@
 
 This project streams video from an EZVIZ security camera using RTSP protocol through MediaMTX, converting it to WebRTC for browser playback.
 
+## Quick Start
+
+### Option 1: Local Setup (Full Features)
+Follow the instructions below for complete setup.
+
+### Option 2: GitHub Pages (Easiest Deployment)
+- No need to run HTTP server
+- Stream from anywhere
+- Just run MediaMTX locally
+- See [GITHUB_PAGES_SETUP.md](GITHUB_PAGES_SETUP.md)
+
+### Option 3: With Automatic Discovery
+- Local network camera discovery
+- Node.js discovery server required
+- See [DYNAMIC_IP_DISCOVERY.md](DYNAMIC_IP_DISCOVERY.md)
+
 ## Architecture
 
 ```
