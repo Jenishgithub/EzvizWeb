@@ -193,4 +193,4 @@ ezviz_browser/
 
 
 ## TODO
-- verify if mtx server has terminated after closing the site.
+- remove unnecessary files 
