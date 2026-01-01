@@ -193,5 +193,4 @@ ezviz_browser/
 
 
 ## TODO
-- pc and camera both has its ip changing frequenlty. make it dynamic for both or if possible finds pc's ip dynamically so that you don't have find your pc's address everytime and update mediaamtx url before staring mtx server
-- make mtx server start automatically when the html site is opened and close automatically when ite is closed.
+- verify if mtx server has terminated after closing the site.
