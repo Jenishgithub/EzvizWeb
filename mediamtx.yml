@@ -1,6 +1,6 @@
 paths:
   ezviz:
-    source: rtsp://admin:HFHJHP@192.168.1.4:554/h264/ch1/main/av_stream
+    source: rtsp://admin:HFHJHP@192.168.1.2:554/h264/ch1/main/av_stream
     rtspTransport: tcp
 
 webrtc: true

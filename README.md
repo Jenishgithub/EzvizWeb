@@ -190,3 +190,8 @@ ezviz_browser/
 - [MediaMTX Documentation](https://github.com/bluenviron/mediamtx)
 - [WebRTC Specification](https://www.w3.org/TR/webrtc/)
 - [WHEP Protocol](https://datatracker.ietf.org/doc/draft-ietf-wish-whep/)
+
+
+## TODO
+- pc and camera both has its ip changing frequenlty. make it dynamic for both or if possible finds pc's ip dynamically so that you don't have find your pc's address everytime and update mediaamtx url before staring mtx server
+- make mtx server start automatically when the html site is opened.
