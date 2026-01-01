@@ -79,6 +79,12 @@
   <video id="video" autoplay playsinline muted></video>
   <div id="controls">
     <div class="control-group">
+      <label>Camera IP:</label>
+      <input type="text" id="cameraIp" placeholder="e.g., 192.168.1.4" value="192.168.1.4">
+      <button id="scanBtn" onclick="scanForCameras()">🔍 Scan Network</button>
+      <select id="cameraList" onchange="selectCamera()" style="display: none;"></select>
+    </div>
+    <div class="control-group">
       <label>Server IP:</label>
       <input type="text" id="serverIp" placeholder="e.g., 192.168.1.6" value="192.168.1.6">
       <label>Stream Path:</label>
@@ -92,17 +98,59 @@
 <script>
 // Configuration constants
 const CONFIG = {
+  DISCOVERY_SERVER: 'http://localhost:3000',
   MEDIAMTX_PORT: 8889,
   STUN_SERVER: 'stun:stun.l.google.com:19302'
 };
 
 let pc = null;
+let scannedCameras = [];
 
-// Load saved configuration
+// Start MediaMTX when page loads
+async function initializeMediaMTX() {
+  try {
+    setStatus('⏳ Starting MediaMTX server...', 'info');
+    const response = await fetch(`${CONFIG.DISCOVERY_SERVER}/start`, { method: 'POST' });
+    const data = await response.json();
+    
+    if (data.status === 'success') {
+      console.log('✅ MediaMTX started:', data);
+      setStatus('📺 MediaMTX started - Ready to stream', 'success');
+      // Give MediaMTX time to start
+      setTimeout(() => {
+        setStatus('Ready. Scan network or enter server IP.', 'info');
+      }, 2000);
+    } else if (data.status === 'already_running') {
+      console.log('⚠️ MediaMTX already running');
+      setStatus('MediaMTX already running', 'info');
+    } else {
+      throw new Error(data.error || 'Failed to start MediaMTX');
+    }
+  } catch (error) {
+    console.error('Error starting MediaMTX:', error);
+    setStatus(`⚠️ Could not auto-start MediaMTX: ${error.message}`, 'warning');
+  }
+}
+
+// Stop MediaMTX when page unloads
+async function shutdownMediaMTX() {
+  try {
+    console.log('Stopping MediaMTX...');
+    await fetch(`${CONFIG.DISCOVERY_SERVER}/stop`, { method: 'POST', keepalive: true });
+  } catch (error) {
+    console.error('Error stopping MediaMTX:', error);
+  }
+}
+
+// Load saved config on page load
 function loadConfig() {
+  const savedCameraIp = localStorage.getItem('cameraIp');
   const savedServerIp = localStorage.getItem('serverIp');
   const savedStreamPath = localStorage.getItem('streamPath');
   
+  if (savedCameraIp) {
+    document.getElementById('cameraIp').value = savedCameraIp;
+  }
   if (savedServerIp) {
     document.getElementById('serverIp').value = savedServerIp;
   }
@@ -113,6 +161,7 @@ function loadConfig() {
 
 // Save configuration
 function saveConfig() {
+  localStorage.setItem('cameraIp', document.getElementById('cameraIp').value);
   localStorage.setItem('serverIp', document.getElementById('serverIp').value);
   localStorage.setItem('streamPath', document.getElementById('streamPath').value);
 }
@@ -122,6 +171,54 @@ function setStatus(message, type = 'info') {
   const statusDiv = document.getElementById('status');
   statusDiv.textContent = message;
   statusDiv.className = type;
+}
+
+// Scan network for cameras with RTSP port open
+async function scanForCameras() {
+  const scanBtn = document.getElementById('scanBtn');
+  
+  scanBtn.disabled = true;
+  setStatus('⏳ Scanning network...', 'info');
+  
+  try {
+    const response = await fetch(`${CONFIG.DISCOVERY_SERVER}/scan`);
+    const data = await response.json();
+    
+    if (data.error) {
+      throw new Error(data.error);
+    }
+    
+    scannedCameras = data.cameras;
+    
+    if (scannedCameras.length === 0) {
+      setStatus('❌ No cameras found. Please enter IP manually.', 'error');
+    } else {
+      // Show dropdown with found cameras
+      const cameraList = document.getElementById('cameraList');
+      cameraList.innerHTML = '<option value="">-- Select Camera --</option>';
+      scannedCameras.forEach(ip => {
+        const option = document.createElement('option');
+        option.value = ip;
+        option.textContent = `Camera at ${ip}`;
+        cameraList.appendChild(option);
+      });
+      cameraList.style.display = 'inline-block';
+      setStatus(`✅ Found ${scannedCameras.length} device(s) with RTSP port open.`, 'success');
+    }
+  } catch (error) {
+    setStatus(`❌ Scan error: ${error.message}. Make sure discovery server is running.`, 'error');
+    console.error('Scan error:', error);
+  } finally {
+    scanBtn.disabled = false;
+  }
+}
+
+// Select camera from dropdown
+function selectCamera() {
+  const cameraList = document.getElementById('cameraList');
+  if (cameraList.value) {
+    document.getElementById('cameraIp').value = cameraList.value;
+  }
 }
 
 // Start WebRTC stream
@@ -222,7 +319,14 @@ async function startStream() {
 }
 
 // Load saved config on page load
-window.addEventListener('load', loadConfig);
+window.addEventListener('load', () => {
+  loadConfig();
+  initializeMediaMTX();
+});
+
+// Stop MediaMTX when page unloads
+window.addEventListener('beforeunload', shutdownMediaMTX);
+window.addEventListener('unload', shutdownMediaMTX);
 
 // Allow Enter key to start stream
 document.addEventListener('keypress', (e) => {

@@ -3,10 +3,15 @@
 const http = require('http');
 const net = require('net');
 const os = require('os');
+const { spawn, exec } = require('child_process');
+const path = require('path');
 
 const RTSP_PORT = 554;
 const SCAN_TIMEOUT_MS = 500;
 const SERVER_PORT = 3000;
+const MEDIAMTX_CONFIG = path.join(__dirname, 'mediamtx.yml');
+
+let mediamtxProcess = null;
 
 /**
  * Get the local subnet from network interfaces
@@ -88,7 +93,7 @@ async function scanNetwork() {
 const server = http.createServer(async (req, res) => {
   // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   res.setHeader('Content-Type', 'application/json');
 
@@ -108,6 +113,18 @@ const server = http.createServer(async (req, res) => {
       const subnet = getSubnet();
       res.writeHead(200);
       res.end(JSON.stringify({ subnet }));
+    } else if (req.url === '/start' && req.method === 'POST') {
+      const result = startMediaMTX();
+      res.writeHead(200);
+      res.end(JSON.stringify(result));
+    } else if (req.url === '/stop' && req.method === 'POST') {
+      const result = stopMediaMTX();
+      res.writeHead(200);
+      res.end(JSON.stringify(result));
+    } else if (req.url === '/status' && req.method === 'GET') {
+      const status = getMediaMTXStatus();
+      res.writeHead(200);
+      res.end(JSON.stringify(status));
     } else {
       res.writeHead(404);
       res.end(JSON.stringify({ error: 'Not found' }));
@@ -121,15 +138,89 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(SERVER_PORT, '0.0.0.0', () => {
   const subnet = getSubnet();
-  console.log(`\n🎥 EZVIZ Camera Discovery Server`);
-  console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+  console.log(`\n🎥 EZVIZ Camera Discovery & Control Server`);
+  console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
   console.log(`Server running on http://localhost:${SERVER_PORT}`);
   console.log(`\nCurrent subnet: ${subnet}*`);
+  console.log(`MediaMTX config: ${MEDIAMTX_CONFIG}`);
   console.log(`\nEndpoints:`);
-  console.log(`  GET /scan   - Scan network for cameras with RTSP port open`);
-  console.log(`  GET /subnet - Get current subnet\n`);
+  console.log(`  GET  /scan       - Scan network for cameras with RTSP port open`);
+  console.log(`  GET  /subnet     - Get current subnet`);
+  console.log(`  POST /start      - Start MediaMTX server`);
+  console.log(`  POST /stop       - Stop MediaMTX server`);
+  console.log(`  GET  /status     - Get MediaMTX status\n`);
   console.log(`Press Ctrl+C to stop\n`);
 });
+
+/**
+ * Start MediaMTX server
+ */
+function startMediaMTX() {
+  if (mediamtxProcess) {
+    return { status: 'already_running', message: 'MediaMTX is already running' };
+  }
+
+  try {
+    console.log('\n📢 Starting MediaMTX...');
+    
+    // Spawn mediamtx process
+    mediamtxProcess = spawn('mediamtx', [MEDIAMTX_CONFIG], {
+      stdio: 'inherit', // Show output in console
+      detached: false
+    });
+
+    mediamtxProcess.on('error', (error) => {
+      console.error('❌ Error starting MediaMTX:', error);
+      mediamtxProcess = null;
+    });
+
+    mediamtxProcess.on('exit', (code) => {
+      console.log(`⚠️  MediaMTX exited with code ${code}`);
+      mediamtxProcess = null;
+    });
+
+    console.log(`✅ MediaMTX started (PID: ${mediamtxProcess.pid})`);
+    return { status: 'success', message: 'MediaMTX started', pid: mediamtxProcess.pid };
+  } catch (error) {
+    console.error('❌ Failed to start MediaMTX:', error);
+    return { status: 'error', error: error.message };
+  }
+}
+
+/**
+ * Stop MediaMTX server
+ */
+function stopMediaMTX() {
+  if (!mediamtxProcess) {
+    return { status: 'not_running', message: 'MediaMTX is not running' };
+  }
+
+  try {
+    console.log('\n📢 Stopping MediaMTX...');
+    const pid = mediamtxProcess.pid;
+    
+    // Kill the process
+    mediamtxProcess.kill('SIGTERM');
+    mediamtxProcess = null;
+    
+    console.log(`✅ MediaMTX stopped (was PID: ${pid})`);
+    return { status: 'success', message: 'MediaMTX stopped' };
+  } catch (error) {
+    console.error('❌ Error stopping MediaMTX:', error);
+    mediamtxProcess = null;
+    return { status: 'error', error: error.message };
+  }
+}
+
+/**
+ * Get MediaMTX status
+ */
+function getMediaMTXStatus() {
+  if (!mediamtxProcess) {
+    return { running: false, status: 'not_running' };
+  }
+  return { running: true, status: 'running', pid: mediamtxProcess.pid };
+}
 
 // Graceful shutdown
 process.on('SIGINT', () => {
