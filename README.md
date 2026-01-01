@@ -194,5 +194,8 @@ ezviz_browser/
 
 ## TODO
 - verify if mtx server has terminated after closing the site.
+- update implementation guides in readme.
+- understand mediamtx servers, nodejs.
 - remove unnecessary files.
+- no need to show server ip and stream path.
 - merge this project with pulsarns project.
