@@ -3,7 +3,8 @@
 const http = require('http');
 const net = require('net');
 const os = require('os');
-const { spawn, exec } = require('child_process');
+const fs = require('fs');
+const { spawn } = require('child_process');
 const path = require('path');
 
 const RTSP_PORT = 554;
@@ -12,6 +13,7 @@ const SERVER_PORT = 3000;
 const MEDIAMTX_CONFIG = path.join(__dirname, 'mediamtx.yml');
 
 let mediamtxProcess = null;
+let currentCameraIp = null;
 
 /**
  * Get the local subnet from network interfaces
@@ -89,6 +91,62 @@ async function scanNetwork() {
   return { cameras };
 }
 
+/**
+ * Get the server's local IP address
+ */
+function getLocalIp() {
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name]) {
+      if (iface.family === 'IPv4' && !iface.internal) {
+        return iface.address;
+      }
+    }
+  }
+  return 'localhost';
+}
+
+/**
+ * Configure camera IP in mediamtx.yml
+ */
+function configureCameraIp(cameraIp) {
+  if (!cameraIp) {
+    return { status: 'error', error: 'cameraIp parameter is required' };
+  }
+
+  try {
+    console.log(`\n📝 Configuring camera IP: ${cameraIp}`);
+    
+    // Read current config
+    let config = fs.readFileSync(MEDIAMTX_CONFIG, 'utf8');
+    
+    // Replace camera IP in RTSP source URL
+    // Pattern: rtsp://admin:PASSWORD@OLD_IP:554/...
+    const cameraIpPattern = /rtsp:\/\/([^@]+)@[\d.]+:/;
+    const credentials = config.match(cameraIpPattern)?.[1] || 'admin:HFHJHP';
+    
+    // Replace the source line
+    const oldPattern = /source:\s*rtsp:\/\/[^\n]+/;
+    const newSource = `source: rtsp://${credentials}@${cameraIp}:554/h264/ch1/main/av_stream`;
+    
+    config = config.replace(oldPattern, newSource);
+    
+    // Write updated config
+    fs.writeFileSync(MEDIAMTX_CONFIG, config);
+    
+    currentCameraIp = cameraIp;
+    console.log(`✅ Camera IP configured: ${cameraIp}`);
+    return { 
+      status: 'success', 
+      message: `Camera IP configured to ${cameraIp}`,
+      cameraIp: cameraIp
+    };
+  } catch (error) {
+    console.error('❌ Error configuring camera IP:', error);
+    return { status: 'error', error: error.message };
+  }
+}
+
 // HTTP Server setup
 const server = http.createServer(async (req, res) => {
   // CORS headers
@@ -113,6 +171,16 @@ const server = http.createServer(async (req, res) => {
       const subnet = getSubnet();
       res.writeHead(200);
       res.end(JSON.stringify({ subnet }));
+    } else if (req.url === '/getServerIp' && req.method === 'GET') {
+      const serverIp = getLocalIp();
+      res.writeHead(200);
+      res.end(JSON.stringify({ serverIp }));
+    } else if (req.url.startsWith('/configure') && req.method === 'POST') {
+      const urlParams = new URL(req.url, `http://${req.headers.host}`);
+      const cameraIp = urlParams.searchParams.get('cameraIp');
+      const result = configureCameraIp(cameraIp);
+      res.writeHead(200);
+      res.end(JSON.stringify(result));
     } else if (req.url === '/start' && req.method === 'POST') {
       const result = startMediaMTX();
       res.writeHead(200);
@@ -138,17 +206,21 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(SERVER_PORT, '0.0.0.0', () => {
   const subnet = getSubnet();
+  const serverIp = getLocalIp();
   console.log(`\n🎥 EZVIZ Camera Discovery & Control Server`);
   console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
   console.log(`Server running on http://localhost:${SERVER_PORT}`);
-  console.log(`\nCurrent subnet: ${subnet}*`);
+  console.log(`Server Local IP: ${serverIp}`);
+  console.log(`Current subnet: ${subnet}*`);
   console.log(`MediaMTX config: ${MEDIAMTX_CONFIG}`);
   console.log(`\nEndpoints:`);
-  console.log(`  GET  /scan       - Scan network for cameras with RTSP port open`);
-  console.log(`  GET  /subnet     - Get current subnet`);
-  console.log(`  POST /start      - Start MediaMTX server`);
-  console.log(`  POST /stop       - Stop MediaMTX server`);
-  console.log(`  GET  /status     - Get MediaMTX status\n`);
+  console.log(`  GET  /scan         - Scan network for cameras with RTSP port open`);
+  console.log(`  GET  /subnet       - Get current subnet`);
+  console.log(`  GET  /getServerIp  - Get server's local IP address`);
+  console.log(`  POST /configure    - Configure camera IP (query param: cameraIp=X.X.X.X)`);
+  console.log(`  POST /start        - Start MediaMTX server`);
+  console.log(`  POST /stop         - Stop MediaMTX server`);
+  console.log(`  GET  /status       - Get MediaMTX status\n`);
   console.log(`Press Ctrl+C to stop\n`);
 });
 
