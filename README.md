@@ -193,4 +193,6 @@ ezviz_browser/
 
 
 ## TODO
-- remove unnecessary files 
+- verify if mtx server has terminated after closing the site.
+- remove unnecessary files.
+- merge this project with pulsarns project.
