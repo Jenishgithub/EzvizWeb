@@ -193,6 +193,7 @@ ezviz_browser/
 
 
 ## TODO
+- Make "scan network" takes place right after pages loads and once cam ip is found, "connect" should take place automatically.
 - verify if mtx server has terminated after closing the site.
 - update implementation guides in readme.
 - understand mediamtx servers, nodejs.
