@@ -65,13 +65,6 @@
     .success {
       color: #51cf66;
     }
-    select {
-      padding: 8px;
-      border: 1px solid #444;
-      border-radius: 4px;
-      background: #333;
-      color: white;
-    }
   </style>
 </head>
 <body>
@@ -81,14 +74,8 @@
     <div class="control-group">
       <label>Camera IP:</label>
       <input type="text" id="cameraIp" placeholder="e.g., 192.168.1.4" value="192.168.1.4">
-      <button id="scanBtn" onclick="scanForCameras()">🔍 Scan Network</button>
-      <select id="cameraList" onchange="selectCamera()" style="display: none;"></select>
-    </div>
-    <div class="control-group">
       <label>Server IP:</label>
       <input type="text" id="serverIp" placeholder="e.g., 192.168.1.6" value="192.168.1.6">
-      <label>Stream Path:</label>
-      <input type="text" id="streamPath" placeholder="e.g., ezviz" value="ezviz" style="min-width: 100px;">
       <button onclick="startStream()">▶ Connect</button>
     </div>
     <div id="status">Ready</div>
@@ -259,7 +246,6 @@ async function shutdownMediaMTX() {
 function loadConfig() {
   const savedCameraIp = localStorage.getItem('cameraIp');
   const savedServerIp = localStorage.getItem('serverIp');
-  const savedStreamPath = localStorage.getItem('streamPath');
   
   if (savedCameraIp) {
     document.getElementById('cameraIp').value = savedCameraIp;
@@ -267,16 +253,12 @@ function loadConfig() {
   if (savedServerIp) {
     document.getElementById('serverIp').value = savedServerIp;
   }
-  if (savedStreamPath) {
-    document.getElementById('streamPath').value = savedStreamPath;
-  }
 }
 
 // Save configuration
 function saveConfig() {
   localStorage.setItem('cameraIp', document.getElementById('cameraIp').value);
   localStorage.setItem('serverIp', document.getElementById('serverIp').value);
-  localStorage.setItem('streamPath', document.getElementById('streamPath').value);
 }
 
 // Update status message
@@ -284,55 +266,6 @@ function setStatus(message, type = 'info') {
   const statusDiv = document.getElementById('status');
   statusDiv.textContent = message;
   statusDiv.className = type;
-}
-
-// Scan network for cameras with RTSP port open
-async function scanForCameras() {
-  const scanBtn = document.getElementById('scanBtn');
-  
-  scanBtn.disabled = true;
-  setStatus('⏳ Scanning network...', 'info');
-  
-  try {
-    const response = await fetch(`${CONFIG.DISCOVERY_SERVER}/scan`);
-    const data = await response.json();
-    
-    if (data.error) {
-      throw new Error(data.error);
-    }
-    
-    scannedCameras = data.cameras;
-    
-    if (scannedCameras.length === 0) {
-      setStatus('❌ No cameras found. Please enter IP manually.', 'error');
-    } else {
-      // Show dropdown with found cameras
-      const cameraList = document.getElementById('cameraList');
-      cameraList.innerHTML = '<option value="">-- Select Camera --</option>';
-      scannedCameras.forEach(ip => {
-        const option = document.createElement('option');
-        option.value = ip;
-        option.textContent = `Camera at ${ip}`;
-        cameraList.appendChild(option);
-      });
-      cameraList.style.display = 'inline-block';
-      setStatus(`✅ Found ${scannedCameras.length} device(s) with RTSP port open.`, 'success');
-    }
-  } catch (error) {
-    setStatus(`❌ Scan error: ${error.message}. Make sure discovery server is running.`, 'error');
-    console.error('Scan error:', error);
-  } finally {
-    scanBtn.disabled = false;
-  }
-}
-
-// Select camera from dropdown
-function selectCamera() {
-  const cameraList = document.getElementById('cameraList');
-  if (cameraList.value) {
-    document.getElementById('cameraIp').value = cameraList.value;
-    configureCameraAndStart(cameraList.value);
-  }
 }
 
 // Configure camera IP and start streaming
@@ -384,10 +317,10 @@ async function configureCameraAndStart(cameraIp) {
 // Start WebRTC stream
 async function startStream() {
   const serverIp = document.getElementById('serverIp').value.trim();
-  const streamPath = document.getElementById('streamPath').value.trim();
+  const streamPath = 'ezviz'; // Fixed path for EZVIZ camera
   
-  if (!serverIp || !streamPath) {
-    setStatus('❌ Please enter both Server IP and Stream Path', 'error');
+  if (!serverIp) {
+    setStatus('❌ Server IP is required', 'error');
     return;
   }
   
