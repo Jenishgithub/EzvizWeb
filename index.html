@@ -184,53 +184,7 @@ async function configureAndStartMediaMTX(cameraIp) {
   }
 }
 
-// Scan network and start stream in parallel
-async function scanAndAutoStartStream() {
-  try {
-    setStatus('⏳ Scanning network for cameras...', 'info');
-    
-    // Scan for cameras in parallel with other tasks
-    const scanPromise = fetch(`${CONFIG.DISCOVERY_SERVER}/scan`)
-      .then(r => r.json());
-    
-    // Wait for scan to complete
-    const scanData = await scanPromise;
-    
-    if (scanData.error) {
-      throw new Error(scanData.error);
-    }
-    
-    if (!scanData.cameras || scanData.cameras.length === 0) {
-      setStatus('⚠️ No cameras found. Please scan manually or configure camera IP.', 'warning');
-      console.log('No cameras found in scan');
-      return;
-    }
-    
-    console.log('📹 Found cameras:', scanData.cameras);
-    scannedCameras = scanData.cameras;
-    
-    // Get the first camera
-    const firstCamera = scanData.cameras[0];
-    console.log(`🎯 Auto-selecting first camera: ${firstCamera}`);
-    document.getElementById('cameraIp').value = firstCamera;
-    
-    // Configure and start streaming with first camera
-    setStatus(`⏳ Configuring camera at ${firstCamera}...`, 'info');
-    await configureCameraAndStart(firstCamera);
-    
-    // Wait a moment for MediaMTX to be ready
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    // Auto-start stream
-    console.log('🎬 Auto-starting stream...');
-    setStatus('🔄 Connecting to stream...', 'info');
-    await startStream();
-    
-  } catch (error) {
-    console.error('Error in scan and auto-start:', error);
-    setStatus(`⚠️ Could not auto-start: ${error.message}`, 'warning');
-  }
-}
+
 
 // Stop MediaMTX when page unloads
 async function shutdownMediaMTX() {
@@ -268,51 +222,6 @@ function setStatus(message, type = 'info') {
   statusDiv.className = type;
 }
 
-// Configure camera IP and start streaming
-async function configureCameraAndStart(cameraIp) {
-  try {
-    setStatus('⏳ Configuring camera...', 'info');
-    
-    // Configure the camera IP in mediamtx.yml
-    const configResponse = await fetch(
-      `${CONFIG.DISCOVERY_SERVER}/configure?cameraIp=${cameraIp}`,
-      { method: 'POST' }
-    );
-    const configData = await configResponse.json();
-    
-    if (configData.status !== 'success') {
-      throw new Error(configData.error || 'Failed to configure camera');
-    }
-    
-    console.log('✅ Camera configured:', configData);
-    setStatus('⏳ Restarting MediaMTX with new camera...', 'info');
-    
-    // Stop and restart MediaMTX with new config
-    await fetch(`${CONFIG.DISCOVERY_SERVER}/stop`, { method: 'POST' });
-    
-    // Wait a moment for graceful shutdown
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    // Start with new config
-    const startResponse = await fetch(`${CONFIG.DISCOVERY_SERVER}/start`, { method: 'POST' });
-    const startData = await startResponse.json();
-    
-    if (startData.status === 'success') {
-      console.log('✅ MediaMTX restarted with new camera');
-      setStatus('✅ Camera configured and ready to connect', 'success');
-      
-      // Give MediaMTX time to start
-      setTimeout(() => {
-        setStatus('Ready to connect to stream', 'success');
-      }, 2000);
-    } else {
-      throw new Error(startData.error || 'Failed to restart MediaMTX');
-    }
-  } catch (error) {
-    console.error('Error configuring camera:', error);
-    setStatus(`❌ Error: ${error.message}`, 'error');
-  }
-}
 
 // Start WebRTC stream
 async function startStream() {
