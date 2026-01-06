@@ -76,7 +76,7 @@
       <input type="text" id="cameraIp" placeholder="e.g., 192.168.1.4" value="192.168.1.4">
       <label>Server IP:</label>
       <input type="text" id="serverIp" placeholder="e.g., 192.168.1.6" value="192.168.1.6">
-      <button onclick="startStream()">▶ Connect</button>
+      <button onclick="restartAndStream()">▶ Connect</button>
     </div>
     <div id="status">Ready</div>
   </div>
@@ -220,6 +220,62 @@ function setStatus(message, type = 'info') {
   const statusDiv = document.getElementById('status');
   statusDiv.textContent = message;
   statusDiv.className = type;
+}
+
+// Restart MediaMTX and stream
+async function restartAndStream() {
+  try {
+    const cameraIp = document.getElementById('cameraIp').value.trim();
+    
+    if (!cameraIp) {
+      setStatus('❌ Camera IP is required', 'error');
+      return;
+    }
+    
+    setStatus('⏳ Restarting MediaMTX...', 'info');
+    
+    // Step 1: Configure camera IP
+    const configResponse = await fetch(
+      `${CONFIG.DISCOVERY_SERVER}/configure?cameraIp=${cameraIp}`,
+      { method: 'POST' }
+    );
+    const configData = await configResponse.json();
+    
+    if (configData.status !== 'success') {
+      throw new Error(configData.error || 'Failed to configure camera');
+    }
+    
+    console.log('✅ Camera configured:', configData);
+    
+    // Step 2: Stop MediaMTX
+    setStatus('⏳ Stopping MediaMTX...', 'info');
+    await fetch(`${CONFIG.DISCOVERY_SERVER}/stop`, { method: 'POST' });
+    
+    // Wait for graceful shutdown
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    // Step 3: Start MediaMTX
+    setStatus('⏳ Starting MediaMTX...', 'info');
+    const startResponse = await fetch(`${CONFIG.DISCOVERY_SERVER}/start`, { method: 'POST' });
+    const startData = await startResponse.json();
+    
+    if (startData.status !== 'success' && startData.status !== 'already_running') {
+      throw new Error(startData.error || 'Failed to start MediaMTX');
+    }
+    
+    console.log('✅ MediaMTX restarted');
+    
+    // Wait for MediaMTX to initialize
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    // Step 4: Start the stream
+    setStatus('🔄 Connecting to stream...', 'info');
+    await startStream();
+    
+  } catch (error) {
+    console.error('Error in restart and stream:', error);
+    setStatus(`❌ Error: ${error.message}`, 'error');
+  }
 }
 
 
