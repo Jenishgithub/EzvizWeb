@@ -106,23 +106,22 @@ const CONFIG = {
 let pc = null;
 let scannedCameras = [];
 
-// Start MediaMTX and get server IP in parallel on page load
+// Get server IP and scan for cameras in parallel on page load
 async function initializeMediaMTX() {
   try {
     setStatus('⏳ Initializing system...', 'info');
     
-    // Start MediaMTX immediately
-    console.log('📡 Starting MediaMTX...');
-    const mediamtxPromise = fetch(`${CONFIG.DISCOVERY_SERVER}/start`, { method: 'POST' })
-      .then(r => r.json());
+    // Get server IP and scan for cameras in parallel (no MediaMTX start yet)
+    console.log('🌍 Detecting server IP and scanning for cameras...');
     
-    // Get server IP in parallel
-    console.log('🌍 Detecting server IP...');
     const serverIpPromise = fetch(`${CONFIG.DISCOVERY_SERVER}/getServerIp`)
       .then(r => r.json());
     
+    const scanPromise = fetch(`${CONFIG.DISCOVERY_SERVER}/scan`)
+      .then(r => r.json());
+    
     // Wait for both to complete
-    const [mediamtxData, ipData] = await Promise.all([mediamtxPromise, serverIpPromise]);
+    const [ipData, scanData] = await Promise.all([serverIpPromise, scanPromise]);
     
     // Set server IP
     if (ipData.serverIp) {
@@ -130,19 +129,71 @@ async function initializeMediaMTX() {
       console.log('✅ Server IP detected:', ipData.serverIp);
     }
     
-    // Check MediaMTX status
-    if (mediamtxData.status === 'success' || mediamtxData.status === 'already_running') {
-      console.log('✅ MediaMTX ready');
-      setStatus('🟢 System initialized', 'success');
-      
-      // Now run network scan and auto-start stream in parallel
-      await scanAndAutoStartStream();
-    } else {
-      throw new Error(mediamtxData.error || 'Failed to start MediaMTX');
+    // Check if cameras were found
+    if (!scanData.cameras || scanData.cameras.length === 0) {
+      setStatus('⚠️ No cameras found. Please scan manually or configure camera IP.', 'warning');
+      console.log('No cameras found in scan');
+      return;
     }
+    
+    console.log('📹 Found cameras:', scanData.cameras);
+    scannedCameras = scanData.cameras;
+    
+    // Get the first camera and auto-start stream with it
+    const firstCamera = scanData.cameras[0];
+    console.log(`🎯 Auto-selecting first camera: ${firstCamera}`);
+    document.getElementById('cameraIp').value = firstCamera;
+    
+    // Now configure camera and start MediaMTX only once
+    await configureAndStartMediaMTX(firstCamera);
+    
   } catch (error) {
     console.error('Error initializing system:', error);
     setStatus(`⚠️ Initialization error: ${error.message}`, 'warning');
+  }
+}
+
+// Configure camera IP and start MediaMTX only once
+async function configureAndStartMediaMTX(cameraIp) {
+  try {
+    setStatus(`⏳ Configuring camera at ${cameraIp}...`, 'info');
+    
+    // Configure the camera IP in mediamtx.yml
+    const configResponse = await fetch(
+      `${CONFIG.DISCOVERY_SERVER}/configure?cameraIp=${cameraIp}`,
+      { method: 'POST' }
+    );
+    const configData = await configResponse.json();
+    
+    if (configData.status !== 'success') {
+      throw new Error(configData.error || 'Failed to configure camera');
+    }
+    
+    console.log('✅ Camera configured:', configData);
+    
+    // Now start MediaMTX ONCE with the correct camera configuration
+    setStatus('⏳ Starting MediaMTX with configured camera...', 'info');
+    const startResponse = await fetch(`${CONFIG.DISCOVERY_SERVER}/start`, { method: 'POST' });
+    const startData = await startResponse.json();
+    
+    if (startData.status === 'success' || startData.status === 'already_running') {
+      console.log('✅ MediaMTX started with correct camera configuration');
+      setStatus('✅ Ready to stream', 'success');
+      
+      // Wait a moment for MediaMTX to fully initialize
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // Auto-start stream
+      console.log('🎬 Auto-starting stream...');
+      setStatus('🔄 Connecting to stream...', 'info');
+      await startStream();
+      
+    } else {
+      throw new Error(startData.error || 'Failed to start MediaMTX');
+    }
+  } catch (error) {
+    console.error('Error configuring and starting MediaMTX:', error);
+    setStatus(`❌ Error: ${error.message}`, 'error');
   }
 }
 
