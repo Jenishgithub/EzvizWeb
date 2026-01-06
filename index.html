@@ -106,40 +106,91 @@ const CONFIG = {
 let pc = null;
 let scannedCameras = [];
 
-// Start MediaMTX when page loads
+// Start MediaMTX and get server IP in parallel on page load
 async function initializeMediaMTX() {
   try {
-    // First, get the server's IP address
-    setStatus('⏳ Detecting server IP...', 'info');
-    const ipResponse = await fetch(`${CONFIG.DISCOVERY_SERVER}/getServerIp`);
-    const ipData = await ipResponse.json();
+    setStatus('⏳ Initializing system...', 'info');
     
+    // Start MediaMTX immediately
+    console.log('📡 Starting MediaMTX...');
+    const mediamtxPromise = fetch(`${CONFIG.DISCOVERY_SERVER}/start`, { method: 'POST' })
+      .then(r => r.json());
+    
+    // Get server IP in parallel
+    console.log('🌍 Detecting server IP...');
+    const serverIpPromise = fetch(`${CONFIG.DISCOVERY_SERVER}/getServerIp`)
+      .then(r => r.json());
+    
+    // Wait for both to complete
+    const [mediamtxData, ipData] = await Promise.all([mediamtxPromise, serverIpPromise]);
+    
+    // Set server IP
     if (ipData.serverIp) {
       document.getElementById('serverIp').value = ipData.serverIp;
       console.log('✅ Server IP detected:', ipData.serverIp);
     }
     
-    // Then try to start MediaMTX
-    setStatus('⏳ Starting MediaMTX server...', 'info');
-    const response = await fetch(`${CONFIG.DISCOVERY_SERVER}/start`, { method: 'POST' });
-    const data = await response.json();
-    
-    if (data.status === 'success') {
-      console.log('✅ MediaMTX started:', data);
-      setStatus('📺 MediaMTX started - Ready to stream', 'success');
-      // Give MediaMTX time to start
-      setTimeout(() => {
-        setStatus('Ready. Scan network or select camera.', 'info');
-      }, 2000);
-    } else if (data.status === 'already_running') {
-      console.log('⚠️ MediaMTX already running');
-      setStatus('MediaMTX already running', 'info');
+    // Check MediaMTX status
+    if (mediamtxData.status === 'success' || mediamtxData.status === 'already_running') {
+      console.log('✅ MediaMTX ready');
+      setStatus('🟢 System initialized', 'success');
+      
+      // Now run network scan and auto-start stream in parallel
+      await scanAndAutoStartStream();
     } else {
-      throw new Error(data.error || 'Failed to start MediaMTX');
+      throw new Error(mediamtxData.error || 'Failed to start MediaMTX');
     }
   } catch (error) {
-    console.error('Error starting MediaMTX:', error);
-    setStatus(`⚠️ Could not auto-start MediaMTX: ${error.message}`, 'warning');
+    console.error('Error initializing system:', error);
+    setStatus(`⚠️ Initialization error: ${error.message}`, 'warning');
+  }
+}
+
+// Scan network and start stream in parallel
+async function scanAndAutoStartStream() {
+  try {
+    setStatus('⏳ Scanning network for cameras...', 'info');
+    
+    // Scan for cameras in parallel with other tasks
+    const scanPromise = fetch(`${CONFIG.DISCOVERY_SERVER}/scan`)
+      .then(r => r.json());
+    
+    // Wait for scan to complete
+    const scanData = await scanPromise;
+    
+    if (scanData.error) {
+      throw new Error(scanData.error);
+    }
+    
+    if (!scanData.cameras || scanData.cameras.length === 0) {
+      setStatus('⚠️ No cameras found. Please scan manually or configure camera IP.', 'warning');
+      console.log('No cameras found in scan');
+      return;
+    }
+    
+    console.log('📹 Found cameras:', scanData.cameras);
+    scannedCameras = scanData.cameras;
+    
+    // Get the first camera
+    const firstCamera = scanData.cameras[0];
+    console.log(`🎯 Auto-selecting first camera: ${firstCamera}`);
+    document.getElementById('cameraIp').value = firstCamera;
+    
+    // Configure and start streaming with first camera
+    setStatus(`⏳ Configuring camera at ${firstCamera}...`, 'info');
+    await configureCameraAndStart(firstCamera);
+    
+    // Wait a moment for MediaMTX to be ready
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    // Auto-start stream
+    console.log('🎬 Auto-starting stream...');
+    setStatus('🔄 Connecting to stream...', 'info');
+    await startStream();
+    
+  } catch (error) {
+    console.error('Error in scan and auto-start:', error);
+    setStatus(`⚠️ Could not auto-start: ${error.message}`, 'warning');
   }
 }
 
